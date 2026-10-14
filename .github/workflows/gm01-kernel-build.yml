@@ -1,0 +1,33 @@
+name: Build GM01 Kernel
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/gm01-kernel-build.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      ARCH: arm64
+      CROSS_COMPILE: aarch64-linux-gnu-
+      DEFCONFIG: sprd_sharkl3_defconfig
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu bc bison flex libssl-dev libelf-dev cpio
+      - name: Configure GM01 kernel
+        run: make O=out ARCH=$ARCH $DEFCONFIG
+      - name: Build kernel
+        run: make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE Image.gz dtbs
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GM01-Linux-4.4.83
+          path: |
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/dts/**/*.dtb
+          if-no-files-found: error
