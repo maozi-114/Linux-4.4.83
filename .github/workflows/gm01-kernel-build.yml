@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/gm01-kernel-build.yml'
+      - .github/workflows/gm01-kernel-build.yml
 permissions:
   contents: read
 jobs:
@@ -11,22 +11,25 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       ARCH: arm64
-      CROSS_COMPILE: aarch64-linux-gnu-
-      DEFCONFIG: sprd_sharkl3_defconfig
+      CROSS_COMPILE: aarch64-linux-android-
     steps:
       - uses: actions/checkout@v4
-      - name: Install toolchain and dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu bc bison flex libssl-dev libelf-dev cpio
+          sudo apt-get install -y bc bison build-essential cpio flex libelf-dev libssl-dev
+      - name: Fetch Android GCC 4.9
+        run: |
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc49
+          echo "$GITHUB_WORKSPACE/gcc49/bin" >> "$GITHUB_PATH"
       - name: Configure GM01 kernel
-        run: make O=out ARCH=$ARCH $DEFCONFIG
-      - name: Build kernel
-        run: make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE Image.gz dtbs
+        run: make O=out ARCH=$ARCH sprd_sharkl3_defconfig
+      - name: Build with Android GCC 4.9
+        run: make -j"$(nproc)" O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE Image.gz dtbs
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: GM01-Linux-4.4.83
+          name: GM01-Linux-4.4.83-GCC4.9
           path: |
             out/arch/arm64/boot/Image.gz
             out/arch/arm64/boot/dts/**/*.dtb
