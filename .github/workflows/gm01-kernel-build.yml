@@ -15,16 +15,13 @@ jobs:
     env:
       ARCH: arm
       CROSS_COMPILE: arm-linux-androideabi-
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential cpio flex \
             libelf-dev libssl-dev python-is-python3
-
       - name: Fetch Android GCC 4.9
         run: |
           git clone --depth=1 \
@@ -33,18 +30,15 @@ jobs:
           test -x gcc32/bin/arm-linux-androideabi-gcc
           gcc32/bin/arm-linux-androideabi-gcc --version | head -1
           echo "$GITHUB_WORKSPACE/gcc32/bin" >> "$GITHUB_PATH"
-
       - name: Use extracted GM01 stock config
         run: |
           mkdir -p out
           cp configs/gm01-stock-4.4.83.config out/.config
           make O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" olddefconfig 2>&1 | tee configure.log
-
-      - name: Build with Android GCC 4.9
+      - name: Build zImage with Android GCC 4.9
         run: |
           set -o pipefail
-          make -j"$(nproc)" O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" zImage dtbs 2>&1 | tee build.log
-
+          make -j"$(nproc)" O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" zImage 2>&1 | tee build.log
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,14 +49,11 @@ jobs:
             build.log
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Upload kernel artifacts
+      - name: Upload kernel artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: GM01-SL8541E-Linux-4.4.83-GCC4.9
-          path: |
-            out/arch/arm/boot/zImage
-            out/arch/arm/boot/dts/**/*.dtb
+          name: GM01-SL8541E-zImage-Linux-4.4.83-GCC4.9
+          path: out/arch/arm/boot/zImage
           if-no-files-found: error
           retention-days: 14
