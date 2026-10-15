@@ -1,48 +1,78 @@
-name: Build GM01 Kernel
+name: Build GM01 / SL8541E Kernel
+
 on:
   workflow_dispatch:
   push:
     paths:
       - .github/workflows/gm01-kernel-build.yml
+
 permissions:
   contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     env:
       ARCH: arm64
       CROSS_COMPILE: aarch64-linux-android-
+      CROSS_COMPILE_ARM32: arm-linux-androideabi-
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential cpio flex libelf-dev libssl-dev
+          sudo apt-get install -y bc bison build-essential cpio flex \
+            libelf-dev libssl-dev python-is-python3
+
       - name: Fetch Android GCC 4.9
         run: |
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc49
-          echo "$GITHUB_WORKSPACE/gcc49/bin" >> "$GITHUB_PATH"
-      - name: Configure GM01 kernel
-        run: make O=out ARCH=$ARCH sprd_sharkl3_defconfig 2>&1 | tee configure.log
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git \
+            gcc64
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
+            gcc32
+          test -x gcc64/bin/aarch64-linux-android-gcc
+          test -x gcc32/bin/arm-linux-androideabi-gcc
+          gcc64/bin/aarch64-linux-android-gcc --version | head -1
+          gcc32/bin/arm-linux-androideabi-gcc --version | head -1
+          echo "$GITHUB_WORKSPACE/gcc64/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/gcc32/bin" >> "$GITHUB_PATH"
+
+      - name: Configure GM01 / SL8541E kernel
+        run: |
+          set -o pipefail
+          make O=out ARCH="$ARCH" \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+            sprd_sharkle_defconfig 2>&1 | tee configure.log
+
       - name: Build with Android GCC 4.9
         run: |
           set -o pipefail
-          make -j"$(nproc)" O=out ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE Image.gz dtbs 2>&1 | tee build.log
+          make -j"$(nproc)" O=out ARCH="$ARCH" \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+            Image.gz dtbs 2>&1 | tee build.log
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: GM01-build-log
+          name: GM01-SL8541E-build-log
           path: |
             configure.log
             build.log
           if-no-files-found: warn
           retention-days: 14
+
       - name: Upload kernel artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: GM01-Linux-4.4.83-GCC4.9
+          name: GM01-SL8541E-Linux-4.4.83-GCC4.9
           path: |
             out/arch/arm64/boot/Image.gz
             out/arch/arm64/boot/dts/**/*.dtb
