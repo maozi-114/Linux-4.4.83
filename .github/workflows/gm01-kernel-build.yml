@@ -37,10 +37,13 @@ jobs:
           mkdir -p out
           cp configs/gm01-stock-4.4.83.config out/.config
           make O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" olddefconfig 2>&1 | tee configure.log
-      - name: Build zImage with Android GCC 4.9
+      - name: Build kernel once (Image and zImage)
         run: |
           set -o pipefail
           make -j"$(nproc)" O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" zImage 2>&1 | tee build.log
+          test -s out/arch/arm/boot/Image
+          test -s out/arch/arm/boot/zImage
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -51,11 +54,13 @@ jobs:
             build.log
           if-no-files-found: warn
           retention-days: 14
-      - name: Upload kernel artifact
+      - name: Upload kernel artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: GM01-SL8541E-zImage-Linux-4.4.83-GCC4.9
-          path: out/arch/arm/boot/zImage
+          name: GM01-SL8541E-kernel-and-zImage
+          path: |
+            out/arch/arm/boot/Image
+            out/arch/arm/boot/zImage
           if-no-files-found: error
           retention-days: 14
