@@ -234,12 +234,9 @@ static int hyn_input_dev_init(struct hyn_ts_data *ts_data)
 			input_set_capability(input_dev, EV_KEY, dt->key_code[key_num]);
 #if HYN_MT_PROTOCOL_B_EN
     set_bit(BTN_TOOL_FINGER,input_dev->keybit);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)
+    /* This 4.4 tree carries the backported 3-argument
+     * input_mt_init_slots() (with INPUT_MT_DIRECT), so use it directly. */
     input_mt_init_slots(input_dev, dt->max_touch_num, INPUT_MT_DIRECT);
-#else
-    /* Linux 4.4: input_mt_init_slots() takes only two arguments. */
-    input_mt_init_slots(input_dev, dt->max_touch_num);
-#endif
 #else
     input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 #endif
