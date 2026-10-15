@@ -13,9 +13,8 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     env:
-      ARCH: arm64
-      CROSS_COMPILE: aarch64-linux-android-
-      CROSS_COMPILE_ARM32: arm-linux-androideabi-
+      ARCH: arm
+      CROSS_COMPILE: arm-linux-androideabi-
 
     steps:
       - uses: actions/checkout@v4
@@ -29,33 +28,22 @@ jobs:
       - name: Fetch Android GCC 4.9
         run: |
           git clone --depth=1 \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git \
-            gcc64
-          git clone --depth=1 \
             https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
             gcc32
-          test -x gcc64/bin/aarch64-linux-android-gcc
           test -x gcc32/bin/arm-linux-androideabi-gcc
-          gcc64/bin/aarch64-linux-android-gcc --version | head -1
           gcc32/bin/arm-linux-androideabi-gcc --version | head -1
-          echo "$GITHUB_WORKSPACE/gcc64/bin" >> "$GITHUB_PATH"
           echo "$GITHUB_WORKSPACE/gcc32/bin" >> "$GITHUB_PATH"
 
-      - name: Configure GM01 / SL8541E kernel
+      - name: Use extracted GM01 stock config
         run: |
-          set -o pipefail
-          make O=out ARCH="$ARCH" \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
-            sprd_sharkle_defconfig 2>&1 | tee configure.log
+          mkdir -p out
+          cp configs/gm01-stock-4.4.83.config out/.config
+          make O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" olddefconfig 2>&1 | tee configure.log
 
       - name: Build with Android GCC 4.9
         run: |
           set -o pipefail
-          make -j"$(nproc)" O=out ARCH="$ARCH" \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
-            Image.gz dtbs 2>&1 | tee build.log
+          make -j"$(nproc)" O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" zImage dtbs 2>&1 | tee build.log
 
       - name: Upload build logs
         if: always()
@@ -74,7 +62,7 @@ jobs:
         with:
           name: GM01-SL8541E-Linux-4.4.83-GCC4.9
           path: |
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/dts/**/*.dtb
+            out/arch/arm/boot/zImage
+            out/arch/arm/boot/dts/**/*.dtb
           if-no-files-found: error
           retention-days: 14
