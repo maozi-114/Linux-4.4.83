@@ -4,16 +4,9 @@
 static struct hyn_ts_data *hyn_data = NULL;
 static const struct hyn_ts_fuc* hyn_fun = NULL;
 static const struct of_device_id hyn_of_match_table[] = {
-    {.compatible = "hyn,66xx", .data = &cst66xx_fuc,},   /*suport 36xx 35xx 66xx 68xx 148E*/
-    {.compatible = "hyn,3240", .data = &cst3240_fuc,},   /*suport 3240 */
-    {.compatible = "hyn,92xx", .data = &cst92xx_fuc,},   /*suport 9217、9220 */
-    {.compatible = "hyn,3xx",  .data = &cst3xx_fuc,},    /*suport 340 348*/
-    {.compatible = "hyn,1xx",  .data = &cst1xx_fuc,},    /*suport 328 128 140 148*/
     /* GM01 / SL8541E stock DTB compatible strings. */
     {.compatible = "cst1xx,cst1xx_ts", .data = &cst1xx_fuc,},
     {.compatible = "hyn,cst1xx",       .data = &cst1xx_fuc,},
-    {.compatible = "hyn,7xx",  .data = &cst7xx_fuc,},    /*suport 726 826 836u*/
-    {.compatible = "hyn,8xxt", .data = &cst8xxT_fuc,},   /*suport 816t 816d 820 08C*/
     {},
 };
 MODULE_DEVICE_TABLE(of, hyn_of_match_table);
