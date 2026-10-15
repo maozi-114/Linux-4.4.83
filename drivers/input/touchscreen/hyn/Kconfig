@@ -1,0 +1,6 @@
+config TOUCHSCREEN_HYNITRON_CST1XX
+    tristate "Hynitron CST1xx touchscreen driver"
+    depends on I2C && OF
+    help
+      Say Y here to enable Hynitron CST1xx touchscreen support
+      (as used on the GM01 / SL8541E panel).
