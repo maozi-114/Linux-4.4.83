@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - .github/workflows/gm01-kernel-build.yml
+      - drivers/input/touchscreen/**
+      - configs/**
 
 permissions:
   contents: read
