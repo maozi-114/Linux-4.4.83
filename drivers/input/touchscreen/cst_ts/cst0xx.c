@@ -734,8 +734,11 @@ static const struct dev_pm_ops cst0xx_pm_ops = {
 MODULE_DEVICE_TABLE(i2c, cst0xx_id);
 
 static const struct of_device_id cst0xx_of_match[] = {
-       { .compatible = "cst0xx,cst0xx_ts", },
-       { }
+{ .compatible = "cst0xx,cst0xx_ts", },
+/* GM01 stock DTB identifies the controller as CST1xx. */
+{ .compatible = "cst1xx,cst1xx_ts", },
+{ .compatible = "hyn,cst1xx", },
+{ }
 };
 MODULE_DEVICE_TABLE(of, cst0xx_of_match);
 static struct i2c_driver cst0xx_driver = {
