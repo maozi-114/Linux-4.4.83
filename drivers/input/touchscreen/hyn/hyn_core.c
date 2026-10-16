@@ -81,8 +81,12 @@ static int hyn_parse_dt(struct hyn_ts_data *ts_data)
             dt->pin_active = pinctrl_lookup_state(dt->pinctl, "ts_active");
             dt->pin_suspend= pinctrl_lookup_state(dt->pinctl, "ts_suspend");
             if(IS_ERR_OR_NULL(dt->pin_active) || IS_ERR_OR_NULL(dt->pin_suspend)){
-                HYN_ERROR("dts get \"ts-active\" \"ts_suspend\" failed");
-                return -EINVAL;
+                /* Stock GM01 DTB has no ts_active/ts_suspend states.
+                 * GPIO reset/irq are already parsed, so pinctrl is optional. */
+                HYN_INFO("pinctrl states not found, continue without pinctrl");
+                dt->pinctl = NULL;
+                dt->pin_active = NULL;
+                dt->pin_suspend= NULL;
             }
         }
         else{
