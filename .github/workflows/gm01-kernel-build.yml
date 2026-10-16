@@ -54,13 +54,27 @@ jobs:
             build.log
           if-no-files-found: warn
           retention-days: 14
-      - name: Upload kernel artifacts
+      - name: Stage named kernel outputs
+        if: success()
+        run: |
+          mkdir -p artifacts
+          cp out/arch/arm/boot/Image artifacts/image
+          cp out/arch/arm/boot/zImage artifacts/zimage
+
+      - name: Upload Image
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: GM01-SL8541E-kernel-and-zImage
-          path: |
-            out/arch/arm/boot/Image
-            out/arch/arm/boot/zImage
+          name: GM01-SL8541E-image
+          path: artifacts/image
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload zImage
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GM01-SL8541E-zimage
+          path: artifacts/zimage
           if-no-files-found: error
           retention-days: 14
