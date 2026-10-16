@@ -12,10 +12,8 @@
  */
 #include <asm/cacheflush.h>
 #include <linux/clk.h>
-#include <linux/console.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
-#include <linux/font.h>
 #include <linux/gpio.h>
 #include <linux/io.h>
 #include <linux/irqreturn.h>
@@ -842,93 +840,6 @@ exit:
 
 }
 
-/*
- * ADF framebuffer printk console.  This board has no VT/fbcon; the already
- * scanned-out RGB565 boot-logo allocation is used until Android posts HWC.
- */
-static void *bootlog_vaddr;
-static u32 bootlog_width, bootlog_height, bootlog_row, bootlog_col;
-static dma_addr_t bootlog_dma;
-static size_t bootlog_size;
-static struct device *bootlog_parent;
-
-static void bootlog_putc(char ch)
-{
-	const u8 *glyph;
-	u16 *pixels = bootlog_vaddr;
-	u32 x, y, bit;
-
-	if (!pixels)
-		return;
-	if (ch == '\r')
-		return;
-	if (ch == '\n') {
-		bootlog_col = 0;
-		bootlog_row++;
-		if ((bootlog_row + 1) * 8 > bootlog_height) {
-			memmove(pixels, pixels + bootlog_width * 8,
-				(bootlog_height - 8) * bootlog_width * sizeof(*pixels));
-			memset(pixels + (bootlog_height - 8) * bootlog_width, 0,
-				8 * bootlog_width * sizeof(*pixels));
-			bootlog_row--;
-		}
-		return;
-	}
-	if (ch < 0x20 || ch > 0x7e)
-		ch = '?';
-	if ((bootlog_col + 1) * 8 > bootlog_width)
-		bootlog_putc('\n');
-	glyph = (const u8 *)font_vga_8x8.data + ((u8)ch * 8);
-	for (y = 0; y < 8 && bootlog_row * 8 + y < bootlog_height; y++)
-		for (bit = 0; bit < 8; bit++) {
-			x = bootlog_col * 8 + bit;
-			if (x < bootlog_width)
-				pixels[(bootlog_row * 8 + y) * bootlog_width + x] =
-					(glyph[y] & (0x80 >> bit)) ? 0xffff : 0;
-		}
-	bootlog_col++;
-}
-
-static void sprd_bootlog_write(struct console *con, const char *text,
-				unsigned int count)
-{
-	unsigned int i;
-
-	for (i = 0; i < count; i++)
-		bootlog_putc(text[i]);
-	if (bootlog_parent)
-		dma_sync_single_for_device(bootlog_parent, bootlog_dma,
-			bootlog_size, DMA_TO_DEVICE);
-}
-
-static struct console sprd_bootlog_console = {
-	.name = "adflog",
-	.write = sprd_bootlog_write,
-	.flags = CON_PRINTBUFFER | CON_ENABLED,
-	.index = -1,
-};
-
-static void sprd_bootlog_enable(void *vaddr, u32 width, u32 height,
-			dma_addr_t dma, size_t size, struct device *parent)
-{
-	if (bootlog_vaddr)
-		return;
-	bootlog_vaddr = vaddr;
-	bootlog_width = width;
-	bootlog_height = height;
-	bootlog_dma = dma;
-	bootlog_size = size;
-	bootlog_parent = parent;
-	memset(bootlog_vaddr, 0, bootlog_size);
-	bootlog_putc('A'); bootlog_putc('D'); bootlog_putc('F');
-	bootlog_putc(' '); bootlog_putc('K'); bootlog_putc('E');
-	bootlog_putc('R'); bootlog_putc('N'); bootlog_putc('E');
-	bootlog_putc('L'); bootlog_putc(' '); bootlog_putc('L');
-	bootlog_putc('O'); bootlog_putc('G'); bootlog_putc('\n');
-	dma_sync_single_for_device(parent, dma, size, DMA_TO_DEVICE);
-	register_console(&sprd_bootlog_console);
-}
-
 static void sprd_dispc_logo_proc(struct sprd_dispc *dispc)
 {
 	uint32_t logo_size;
@@ -1021,8 +932,6 @@ static void sprd_dispc_logo_proc(struct sprd_dispc *dispc)
 	dispc->core->run(ctx);
 	ctx->logo_size = logo_size;
 	ctx->logo_vaddr = logo_dst_v;
-	sprd_bootlog_enable(logo_dst_v, panel->width, panel->height,
-			ctx->dma_handle, logo_size, parent);
 
 	kfree(config);
 }
