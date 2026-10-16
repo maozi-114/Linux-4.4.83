@@ -1,7 +1,8 @@
-
 config ADF_SPRD
 	depends on ADF
 	select VIDEOMODE_HELPERS
+	select FONT_SUPPORT
+	select FONT_8x8
 	bool "Enable adf driver for spreadtrum"
 	help
 	  This driver implements adf core to enable spreadtrum
