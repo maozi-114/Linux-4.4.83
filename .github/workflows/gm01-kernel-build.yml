@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - .github/workflows/gm01-kernel-build.yml
+nput/touchscreen/**/a      - drivers/video/adf/sprd/**
       - drivers/input/touchscreen/**
       - configs/**
 
