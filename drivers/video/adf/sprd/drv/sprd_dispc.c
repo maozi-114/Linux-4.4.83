@@ -840,6 +840,22 @@ exit:
 
 }
 
+/* Boot diagnostic marker drawn into the existing RGB565 boot-logo buffer. */
+static void sprd_bootdiag_draw(void *buf, u32 width, u32 height)
+{
+	u16 *pixels = buf;
+	u32 x, y;
+
+	/* This proves that kernel display handoff reached ADF before Android. */
+	for (y = 0; y < 32 && y < height; y++)
+		for (x = 0; x < width; x++)
+			pixels[y * width + x] = 0xf800; /* red RGB565 banner */
+	for (y = 8; y < 24 && y < height; y++)
+		for (x = 8; x < 160 && x < width; x++)
+			pixels[y * width + x] = 0xffff; /* white status stripe */
+	pr_emerg("BOOTDIAG: ADF display handoff reached\n");
+}
+
 static void sprd_dispc_logo_proc(struct sprd_dispc *dispc)
 {
 	uint32_t logo_size;
@@ -900,6 +916,7 @@ static void sprd_dispc_logo_proc(struct sprd_dispc *dispc)
 	}
 
 	memcpy(logo_dst_v, logo_src_v, logo_size);
+	sprd_bootdiag_draw(logo_dst_v, panel->width, panel->height);
 	dma_sync_single_for_device(parent, ctx->dma_handle,
 				logo_size, DMA_TO_DEVICE);
 	logo_dst_p = (void *)ctx->dma_handle;
