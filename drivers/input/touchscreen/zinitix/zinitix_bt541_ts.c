@@ -786,7 +786,7 @@ static void bt541_set_optional_mode(struct bt541_ts_info *info, bool force)
 }
 
 #define I2C_BUFFER_SIZE 64
-static bool get_raw_data(struct bt541_ts_info *info, u8 *buff, int skip_cnt)
+static bool __maybe_unused get_raw_data(struct bt541_ts_info *info, u8 *buff, int skip_cnt)
 {
 	struct i2c_client *client = info->client;
 	struct bt541_ts_platform_data *pdata = info->pdata;
@@ -5084,8 +5084,6 @@ static struct i2c_driver bt541_ts_driver = {
 
 static int __init bt541_ts_init(void)
 {
-	int rc = 0;
-
 	zinitix_printk("[TSP]: %s\n", __func__);
 
 	/*
