@@ -33,7 +33,7 @@ static int hyn_parse_dt(struct hyn_ts_data *ts_data)
     struct hyn_plat_data* dt = &ts_data->plat_data;
     HYN_ENTER();
     if(dev->of_node){
-        u32 buf[8];
+        u32 buf[4] = { 0 };
         struct device_node *np = dev->of_node;
         dt->vdd_i2c = NULL;
         dt->vdd_ana = NULL;
@@ -58,15 +58,23 @@ static int hyn_parse_dt(struct hyn_ts_data *ts_data)
         else{
             HYN_INFO("vdd_i2c not config");
         }
-        dt->reset_gpio = of_get_named_gpio_flags(np, "reset-gpio", 0, &dt->reset_gpio_flags);
-        dt->irq_gpio = of_get_named_gpio_flags(np, "irq-gpio", 0, &dt->irq_gpio_flags);
-        if(dt->reset_gpio < 0 || dt->irq_gpio < 0){
-            HYN_ERROR("dts get gpio failed");
-            return -ENODEV;
-        }
-        else{
-            HYN_INFO("reset_gpio:%d irq_gpio:%d",dt->reset_gpio,dt->irq_gpio);
-        }
+        /* Named GPIOs for newer boards; indexed gpios for stock GM01. */
+        dt->reset_gpio = of_get_named_gpio_flags(np, "reset-gpio", 0,
+                                                &dt->reset_gpio_flags);
+        if (dt->reset_gpio == -ENOENT)
+            dt->reset_gpio = of_get_named_gpio_flags(np, "gpios", 0,
+                                                    &dt->reset_gpio_flags);
+        if (dt->reset_gpio < 0)
+            return dt->reset_gpio;
+
+        dt->irq_gpio = of_get_named_gpio_flags(np, "irq-gpio", 0,
+                                              &dt->irq_gpio_flags);
+        if (dt->irq_gpio == -ENOENT)
+            dt->irq_gpio = of_get_named_gpio_flags(np, "gpios", 1,
+                                                  &dt->irq_gpio_flags);
+        if (dt->irq_gpio < 0)
+            return dt->irq_gpio;
+        HYN_INFO("reset_gpio:%d irq_gpio:%d", dt->reset_gpio, dt->irq_gpio);
 
         dt->pinctl = devm_pinctrl_get(dev);
         if (!IS_ERR_OR_NULL(dt->pinctl)){
@@ -84,20 +92,38 @@ static int hyn_parse_dt(struct hyn_ts_data *ts_data)
             dt->pin_suspend= NULL;
         }
 
-        ret = of_property_read_u32(np, "max-touch-number", &dt->max_touch_num);
-        ret |= of_property_read_u32(np, "pos-swap", &dt->swap_xy);
-        ret |= of_property_read_u32(np, "posx-reverse", &dt->reverse_x);
-        ret |= of_property_read_u32(np, "posy-reverse", &dt->reverse_y);
-        ret |= of_property_read_u32_array(np, "display-coords", buf, 4);
-        dt->x_resolution = buf[2];
-        dt->y_resolution = buf[3];
-        HYN_INFO("dts x_res = %d,y_res = %d,touch-number = %d swap_xy = %d reversex = %d reversey = %d",
-                    dt->x_resolution,dt->y_resolution,dt->max_touch_num,dt->swap_xy,dt->reverse_x,dt->reverse_y);
-        if(ret < 0){
-            HYN_ERROR("dts get screen failed");
+        /* The stock DTB supplies TP_MAX_X/Y, not display-coords. */
+        dt->max_touch_num = MAX_POINTS_REPORT;
+        dt->swap_xy = 0;
+        dt->reverse_x = 0;
+        dt->reverse_y = 0;
+        of_property_read_u32(np, "max-touch-number", &dt->max_touch_num);
+        of_property_read_u32(np, "pos-swap", &dt->swap_xy);
+        of_property_read_u32(np, "posx-reverse", &dt->reverse_x);
+        of_property_read_u32(np, "posy-reverse", &dt->reverse_y);
+        if (of_find_property(np, "display-coords", NULL)) {
+            ret = of_property_read_u32_array(np, "display-coords", buf, 4);
+            if (ret)
+                return ret;
+            dt->x_resolution = buf[2];
+            dt->y_resolution = buf[3];
+        } else {
+            ret = of_property_read_u32(np, "TP_MAX_X", &dt->x_resolution);
+            if (ret)
+                return ret;
+            ret = of_property_read_u32(np, "TP_MAX_Y", &dt->y_resolution);
+            if (ret)
+                return ret;
+        }
+        if (!dt->x_resolution || !dt->y_resolution ||
+            !dt->max_touch_num || dt->max_touch_num > MAX_POINTS_REPORT) {
+            HYN_ERROR("invalid coordinates or max-touch-number (limit %d)",
+                      MAX_POINTS_REPORT);
             return -EINVAL;
         }
-
+        HYN_INFO("dts x_res=%d y_res=%d points=%d swap=%d reversex=%d reversey=%d",
+                 dt->x_resolution, dt->y_resolution, dt->max_touch_num,
+                 dt->swap_xy, dt->reverse_x, dt->reverse_y);
         ret = of_property_read_u32(np, "key-number", &dt->key_num);
         if(ret>=0 && dt->key_num && dt->key_num<=8){
             ret |= of_property_read_u32(np, "key-y-coord", &dt->key_y_coords);
