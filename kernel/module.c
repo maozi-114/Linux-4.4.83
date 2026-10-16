@@ -1261,16 +1261,18 @@ static struct module_attribute *modinfo_attrs[] = {
 
 static const char vermagic[] = VERMAGIC_STRING;
 
+/*
+ * Compatibility build: allow loading modules despite all version/signature
+ * compatibility failures. ELF layout and relocation/symbol resolution still
+ * have to succeed; otherwise the kernel cannot safely parse the object.
+ */
 static int try_to_force_load(struct module *mod, const char *reason)
 {
-#ifdef CONFIG_MODULE_FORCE_LOAD
 	if (!test_taint(TAINT_FORCED_MODULE))
-		pr_warn("%s: %s: kernel tainted.\n", mod->name, reason);
+		pr_warn("%s: forcing module load (%s); kernel tainted.\n",
+			mod->name, reason);
 	add_taint_module(mod, TAINT_FORCED_MODULE, LOCKDEP_NOW_UNRELIABLE);
 	return 0;
-#else
-	return -ENOEXEC;
-#endif
 }
 
 #ifdef CONFIG_MODVERSIONS
@@ -1294,6 +1296,17 @@ static int check_version(Elf_Shdr *sechdrs,
 {
 	unsigned int i, num_versions;
 	struct modversion_info *versions;
+
+    /* Stock Mali compatibility override: bypass CRCs, not ABI differences. */
+    if (!strcmp(mod->name, "mali")) {
+        if (!(mod->taints & (1U << TAINT_FORCED_MODULE))) {
+            pr_warn("%s: bypassing symbol CRC checks; ABI compatibility not guaranteed\n",
+                    mod->name);
+            add_taint_module(mod, TAINT_FORCED_MODULE,
+                             LOCKDEP_NOW_UNRELIABLE);
+        }
+        return 1;
+    }
 
 	/* Exporting module didn't supply crcs?  OK, we're already tainted. */
 	if (!crc)
@@ -1331,22 +1344,8 @@ static inline int check_modstruct_version(Elf_Shdr *sechdrs,
 					  unsigned int versindex,
 					  struct module *mod)
 {
-	const unsigned long *crc;
-
-	/*
-	 * Since this should be found in kernel (which can't be removed), no
-	 * locking is necessary -- use preempt_disable() to placate lockdep.
-	 */
-	preempt_disable();
-	if (!find_symbol(VMLINUX_SYMBOL_STR(module_layout), NULL,
-			 &crc, true, false)) {
-		preempt_enable();
-		BUG();
-	}
-	preempt_enable();
-	return check_version(sechdrs, versindex,
-			     VMLINUX_SYMBOL_STR(module_layout), mod, crc,
-			     NULL);
+	/* Intentionally skip module_layout CRC validation. */
+	return 1;
 }
 
 /* First part is kernel version, which we ignore if module has crcs. */
@@ -2608,32 +2607,8 @@ static inline void kmemleak_load_module(const struct module *mod,
 #ifdef CONFIG_MODULE_SIG
 static int module_sig_check(struct load_info *info, int flags)
 {
-	int err = -ENOKEY;
-	const unsigned long markerlen = sizeof(MODULE_SIG_STRING) - 1;
-	const void *mod = info->hdr;
-
-	/*
-	 * Require flags == 0, as a module with version information
-	 * removed is no longer the module that was signed
-	 */
-	if (flags == 0 &&
-	    info->len > markerlen &&
-	    memcmp(mod + info->len - markerlen, MODULE_SIG_STRING, markerlen) == 0) {
-		/* We truncate the module to discard the signature */
-		info->len -= markerlen;
-		err = mod_verify_sig(mod, &info->len);
-	}
-
-	if (!err) {
-		info->sig_ok = true;
-		return 0;
-	}
-
-	/* Not having a signature is only an error if we're strict. */
-	if (err == -ENOKEY && !sig_enforce)
-		err = 0;
-
-	return err;
+	/* Signature enforcement intentionally disabled for every module. */
+	return 0;
 }
 #else /* !CONFIG_MODULE_SIG */
 static int module_sig_check(struct load_info *info, int flags)
@@ -2864,33 +2839,11 @@ static struct module *setup_load_info(struct load_info *info, int flags)
 
 static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 {
-	const char *modmagic = get_modinfo(info, "vermagic");
-	int err;
+	/* Deliberately ignore every module metadata compatibility check. */
+	add_taint_module(mod, TAINT_FORCED_MODULE, LOCKDEP_NOW_UNRELIABLE);
+	add_taint_module(mod, TAINT_OOT_MODULE, LOCKDEP_STILL_OK);
 
-	if (flags & MODULE_INIT_IGNORE_VERMAGIC)
-		modmagic = NULL;
-
-	/* This is allowed: modprobe --force will invalidate it. */
-	if (!modmagic) {
-		err = try_to_force_load(mod, "bad vermagic");
-		if (err)
-			return err;
-	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
-		pr_err("%s: version magic '%s' should be '%s'\n",
-		       mod->name, modmagic, vermagic);
-		return -ENOEXEC;
-	}
-
-	if (!get_modinfo(info, "intree"))
-		add_taint_module(mod, TAINT_OOT_MODULE, LOCKDEP_STILL_OK);
-
-	if (get_modinfo(info, "staging")) {
-		add_taint_module(mod, TAINT_CRAP, LOCKDEP_STILL_OK);
-		pr_warn("%s: module is from the staging directory, the quality "
-			"is unknown, you have been warned.\n", mod->name);
-	}
-
-	/* Set up license info based on the info section */
+	/* Keep a license value only for module bookkeeping. */
 	set_license(mod, get_modinfo(info, "license"));
 
 	return 0;
@@ -3047,37 +3000,7 @@ static int move_module(struct module *mod, struct load_info *info)
 
 static int check_module_license_and_versions(struct module *mod)
 {
-	/*
-	 * ndiswrapper is under GPL by itself, but loads proprietary modules.
-	 * Don't use add_taint_module(), as it would prevent ndiswrapper from
-	 * using GPL-only symbols it needs.
-	 */
-	if (strcmp(mod->name, "ndiswrapper") == 0)
-		add_taint(TAINT_PROPRIETARY_MODULE, LOCKDEP_NOW_UNRELIABLE);
-
-	/* driverloader was caught wrongly pretending to be under GPL */
-	if (strcmp(mod->name, "driverloader") == 0)
-		add_taint_module(mod, TAINT_PROPRIETARY_MODULE,
-				 LOCKDEP_NOW_UNRELIABLE);
-
-	/* lve claims to be GPL but upstream won't provide source */
-	if (strcmp(mod->name, "lve") == 0)
-		add_taint_module(mod, TAINT_PROPRIETARY_MODULE,
-				 LOCKDEP_NOW_UNRELIABLE);
-
-#ifdef CONFIG_MODVERSIONS
-	if ((mod->num_syms && !mod->crcs)
-	    || (mod->num_gpl_syms && !mod->gpl_crcs)
-	    || (mod->num_gpl_future_syms && !mod->gpl_future_crcs)
-#ifdef CONFIG_UNUSED_SYMBOLS
-	    || (mod->num_unused_syms && !mod->unused_crcs)
-	    || (mod->num_unused_gpl_syms && !mod->unused_gpl_crcs)
-#endif
-		) {
-		return try_to_force_load(mod,
-					 "no versions for exported symbols");
-	}
-#endif
+	/* Intentionally skip license and exported-symbol version validation. */
 	return 0;
 }
 
