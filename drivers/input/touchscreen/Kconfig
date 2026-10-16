@@ -1150,4 +1150,16 @@ config TOUCHSCREEN_MSG2XXX_TS
 
              To compile this driver as a module, choose M here: the
              module will be called msg2xxx_ts
+
+config TOUCHSCREEN_ZINITIX_BT541
+	tristate "Zinitix BT541 touchscreen driver"
+	depends on I2C
+	help
+	  Say Y here if you have a Zinitix BT541 touchscreen controller
+	  connected via I2C (used on the SL8541E / GM01 board).
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called zinitix_bt541_ts.
 endif
