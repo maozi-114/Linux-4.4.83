@@ -1074,50 +1074,62 @@ static void ts_tmr_work(struct work_struct *work)
 	struct bt541_ts_info *info =
 			container_of(work, struct bt541_ts_info, tmr_work);
 	struct i2c_client *client = info->client;
-
-#if defined(TSP_VERBOSE_DEBUG)
-	dev_info(&client->dev, "tmr queue work ++\n");
-#endif
+	u16 chip_check_sum = 0;
+	bool need_recover = false;
 
 	if (down_trylock(&info->work_lock)) {
 		dev_err(&client->dev, "%s: Failed to occupy work lock\n", __func__);
 		esd_timer_start(CHECK_ESD_TIMER, info);
-
 		return;
 	}
-
 	if (info->work_state != NOTHING) {
 		dev_info(&client->dev, "%s: Other process occupied (%d)\n",
 			__func__, info->work_state);
 		up(&info->work_lock);
-
+		esd_timer_start(CHECK_ESD_TIMER, info);
 		return;
 	}
-	info->work_state = ESD_TIMER;
 
+	/*
+	 * SL8541E (GM01) port: only probe the chip, never power-cycle it on a
+	 * healthy tick.  The original Samsung code unconditionally did
+	 * POWER_OFF/POWER_ON here, which reset the controller every
+	 * CHECK_ESD_TIMER seconds and made the panel unusable.
+	 */
+	if (read_data(client, BT541_CHECKSUM_RESULT,
+			(u8 *)&chip_check_sum, 2) < 0) {
+		dev_err(&client->dev, "%s: esd read failed\n", __func__);
+		need_recover = true;
+	} else if (chip_check_sum != 0x55aa) {
+		dev_err(&client->dev, "%s: esd checksum 0x%04x\n",
+			__func__, chip_check_sum);
+		need_recover = true;
+	}
+
+	if (!need_recover) {
+		up(&info->work_lock);
+		esd_timer_start(CHECK_ESD_TIMER, info);
+		return;
+	}
+
+	info->work_state = ESD_TIMER;
 	disable_irq(info->irq);
 	bt541_power_control(info, POWER_OFF);
 	bt541_power_control(info, POWER_ON_SEQUENCE);
-
 	clear_report_data(info);
 	if (mini_init_touch(info) == false)
 		goto fail_time_out_init;
-
 	info->work_state = NOTHING;
 	enable_irq(info->irq);
 	up(&info->work_lock);
-#if defined(TSP_VERBOSE_DEBUG)
-	dev_info(&client->dev, "tmr queue work--\n");
-#endif
-
 	return;
+
 fail_time_out_init:
 	dev_err(&client->dev, "%s: Failed to restart\n", __func__);
 	esd_timer_start(CHECK_ESD_TIMER, info);
 	info->work_state = NOTHING;
 	enable_irq(info->irq);
 	up(&info->work_lock);
-
 	return;
 }
 #endif
@@ -4886,7 +4898,7 @@ static int bt541_ts_probe(struct i2c_client *client,
 
 	snprintf(info->phys, sizeof(info->phys),
 		"%s/input0", dev_name(&client->dev));
-	input_dev->name = "cst1xx";
+	input_dev->name = BT541_TS_DEVICE;
 	input_dev->id.bustype = BUS_I2C;
 	input_dev->phys = info->phys;
 	input_dev->dev.parent = &client->dev;
