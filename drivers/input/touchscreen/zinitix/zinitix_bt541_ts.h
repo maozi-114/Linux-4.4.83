@@ -86,6 +86,12 @@ struct bt541_ts_platform_data {
 	 * Keep the pin here and drive it explicitly.
 	 */
 	int		gpio_reset;
+	bool		gpio_int_requested;
+	bool		gpio_reset_requested;
+	bool		gpio_en_requested;
+#ifdef SUPPORTED_TOUCH_KEY_LED
+	bool		gpio_keyled_requested;
+#endif
 	//u32		gpio_scl;
 	//u32		gpio_sda;
 	//u32		gpio_ldo_en;
