@@ -76,6 +76,16 @@
 
 struct bt541_ts_platform_data {
 	int		gpio_int;
+	/*
+	 * SL8541E (GM01) port: the stock DT describes the controller with the
+	 * generic "gpios" property holding two entries -- index 0 is the
+	 * interrupt line (145) and index 1 is the reset line (144).  The
+	 * original Samsung code never touched the reset pin because the
+	 * bootloader left it deasserted.  On this platform nothing drives
+	 * pin 144, so the chip stays in reset and every I2C transfer fails.
+	 * Keep the pin here and drive it explicitly.
+	 */
+	int		gpio_reset;
 	//u32		gpio_scl;
 	//u32		gpio_sda;
 	//u32		gpio_ldo_en;
