@@ -1178,6 +1178,25 @@ static void bt541_hw_power(struct bt541_ts_info *info, int onoff)
 {
 	struct bt541_ts_platform_data *pdata = info->pdata;
 	int ret;
+	/*
+	 * SL8541E (GM01): drive the reset line explicitly.  On this platform
+	 * no other component owns pin 144, so the driver must generate the
+	 * reset pulse itself; otherwise the controller stays held in reset
+	 * and every I2C access fails, which aborts probe before the input
+	 * device is registered.
+	 */
+	if (pdata->gpio_reset >= 0) {
+		if (onoff) {
+			gpio_set_value(pdata->gpio_reset, 0);
+			mdelay(10);
+			gpio_set_value(pdata->gpio_reset, 1);
+			mdelay(10);
+			pr_info("[TSP] %s: reset pulse on gpio %d\n",
+				__func__, pdata->gpio_reset);
+		} else {
+			gpio_set_value(pdata->gpio_reset, 0);
+		}
+	}
 	if(onoff){
 		if (info->vddo_vreg){
 			ret = regulator_enable(info->vddo_vreg);
@@ -4546,6 +4565,23 @@ static int zinitix_init_gpio(struct bt541_ts_platform_data *pdata)
 			__func__, pdata->gpio_int);
 		return ret;
 	}
+	/*
+	 * SL8541E (GM01): claim and drive the reset line.  The pin is left
+	 * untouched by the bootloader on this platform, so without an explicit
+	 * reset pulse the controller never answers on I2C.
+	 */
+	if (pdata->gpio_reset >= 0) {
+		ret = gpio_request(pdata->gpio_reset, "zinitix_tsp_reset");
+		if (ret) {
+			pr_err("[TSP]%s: unable to request zinitix_tsp_reset [%d]\n",
+				__func__, pdata->gpio_reset);
+			gpio_free(pdata->gpio_int);
+			return ret;
+		}
+		gpio_direction_output(pdata->gpio_reset, 1);
+		pr_info("[TSP]%s: reset gpio %d claimed, released\n",
+			__func__, pdata->gpio_reset);
+	}
 /*
 	gpio_tlmm_config(GPIO_CFG(pdata->gpio_int, 0,
 		GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
@@ -4636,7 +4672,24 @@ static int bt541_ts_probe_dt(struct device_node *np,
 				pdata->gpio_int);
 		return -EINVAL;
 	}
-	
+
+	/*
+	 * SL8541E (GM01): the stock DT packs both lines into "gpios" --
+	 * index 0 = interrupt (145), index 1 = reset (144).  Nothing else on
+	 * this platform drives the reset pin, so the driver has to do it,
+	 * otherwise the controller never leaves reset and all I2C accesses
+	 * fail.  Absence of the second entry is not fatal (older DTs).
+	 */
+	pdata->gpio_reset = of_get_named_gpio(np, "gpios", 1);
+	if (pdata->gpio_reset < 0) {
+		pdata->gpio_reset = of_get_named_gpio(np, "zinitix,reset-gpio", 0);
+	}
+	if (pdata->gpio_reset < 0) {
+		dev_info(dev, "%s: no reset gpio, assuming bootloader released it\n",
+				__func__);
+		pdata->gpio_reset = -1;
+	}
+
 	ret = of_property_read_u32(np, "zinitix,tsp_vdd_supply_type",
 				&pdata->tsp_supply_type);
 	if (ret < 0) {
@@ -4820,7 +4873,7 @@ static int bt541_ts_probe(struct i2c_client *client,
 
 	snprintf(info->phys, sizeof(info->phys),
 		"%s/input0", dev_name(&client->dev));
-	input_dev->name = "sec_touchscreen";
+	input_dev->name = "cst1xx";
 	input_dev->id.bustype = BUS_I2C;
 	input_dev->phys = info->phys;
 	input_dev->dev.parent = &client->dev;
@@ -5029,10 +5082,10 @@ static int bt541_ts_remove(struct i2c_client *client)
 		free_irq(info->irq, info);
 
 	misc_deregister(&touch_misc_device);
-
-
 	if (gpio_is_valid(pdata->gpio_int) != 0)
 		gpio_free(pdata->gpio_int);
+	if (pdata->gpio_reset >= 0)
+		gpio_free(pdata->gpio_reset);
 #ifdef SUPPORTED_TOUCH_KEY_LED
 	if (gpio_is_valid(pdata->gpio_keyled) != 0)
 		gpio_free(pdata->gpio_keyled);
