@@ -1185,18 +1185,8 @@ static void bt541_hw_power(struct bt541_ts_info *info, int onoff)
 	 * and every I2C access fails, which aborts probe before the input
 	 * device is registered.
 	 */
-	if (pdata->gpio_reset >= 0) {
-		if (onoff) {
-			gpio_set_value(pdata->gpio_reset, 0);
-			mdelay(10);
-			gpio_set_value(pdata->gpio_reset, 1);
-			mdelay(10);
-			pr_info("[TSP] %s: reset pulse on gpio %d\n",
-				__func__, pdata->gpio_reset);
-		} else {
-			gpio_set_value(pdata->gpio_reset, 0);
-		}
-	}
+	if (gpio_is_valid(pdata->gpio_reset) && !onoff)
+		gpio_set_value(pdata->gpio_reset, 0);
 	if(onoff){
 		if (info->vddo_vreg){
 			ret = regulator_enable(info->vddo_vreg);
@@ -1243,9 +1233,13 @@ static void bt541_hw_power(struct bt541_ts_info *info, int onoff)
 			}
 		}
 	}
+	if (onoff && gpio_is_valid(pdata->gpio_reset)) {
+		mdelay(5);
+		gpio_set_value(pdata->gpio_reset, 1);
+		mdelay(10);
+	}
 	return;
 }
-
 
 static bool bt541_power_control(struct bt541_ts_info *info, u8 ctl)
 {
@@ -4557,59 +4551,79 @@ static const struct of_device_id zinitix_match_table[] = {
 
 static int zinitix_init_gpio(struct bt541_ts_platform_data *pdata)
 {
-	int ret = 0;
+	int ret;
 
 	ret = gpio_request(pdata->gpio_int, "zinitix_tsp_irq");
-	if(ret) {
+	if (ret) {
 		pr_err("[TSP]%s: unable to request zinitix_tsp_irq [%d]\n",
 			__func__, pdata->gpio_int);
 		return ret;
 	}
-	/*
-	 * SL8541E (GM01): claim and drive the reset line.  The pin is left
-	 * untouched by the bootloader on this platform, so without an explicit
-	 * reset pulse the controller never answers on I2C.
-	 */
-	if (pdata->gpio_reset >= 0) {
+	pdata->gpio_int_requested = true;
+	ret = gpio_direction_input(pdata->gpio_int);
+	if (ret)
+		goto err_free_int;
+
+	if (gpio_is_valid(pdata->gpio_reset)) {
 		ret = gpio_request(pdata->gpio_reset, "zinitix_tsp_reset");
 		if (ret) {
 			pr_err("[TSP]%s: unable to request zinitix_tsp_reset [%d]\n",
 				__func__, pdata->gpio_reset);
-			gpio_free(pdata->gpio_int);
-			return ret;
+			goto err_free_int;
 		}
-		gpio_direction_output(pdata->gpio_reset, 1);
-		pr_info("[TSP]%s: reset gpio %d claimed, released\n",
-			__func__, pdata->gpio_reset);
-	}
-/*
-	gpio_tlmm_config(GPIO_CFG(pdata->gpio_int, 0,
-		GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
-*/
-	if (pdata->tsp_supply_type == TSP_LDO_SUPPLY)
-	{
-		ret = gpio_request(pdata->tsp_en_gpio, "zinitix_tsp_en_gpio");
-		if(ret) {
-			pr_err("[TSP]%s: unable to request zinitix_tsp_en_gpio [%d]\n",
-				__func__, pdata->tsp_en_gpio);
-			return ret;
-		}
-/*
-		gpio_tlmm_config(GPIO_CFG(pdata->tsp_en_gpio, 0,
-			GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
-*/
+		pdata->gpio_reset_requested = true;
+		ret = gpio_direction_output(pdata->gpio_reset, 0);
+		if (ret)
+			goto err_free_reset;
 	}
 
-#ifdef SUPPORTED_TOUCH_KEY_LED
-	if (pdata->gpio_keyled >= 0) {
-		ret = gpio_request(pdata->gpio_keyled, "key_led_gpio");
-		if (ret < 0) {
-			pr_err("%s: gpio_request failed: %d\n", __func__, ret);
-			return ret;
+	if (pdata->tsp_supply_type == TSP_LDO_SUPPLY) {
+		ret = gpio_request(pdata->tsp_en_gpio, "zinitix_tsp_en_gpio");
+		if (ret) {
+			pr_err("[TSP]%s: unable to request zinitix_tsp_en_gpio [%d]\n",
+				__func__, pdata->tsp_en_gpio);
+			goto err_free_reset;
 		}
+		pdata->gpio_en_requested = true;
+		ret = gpio_direction_output(pdata->tsp_en_gpio, 0);
+		if (ret)
+			goto err_free_en;
+	}
+#ifdef SUPPORTED_TOUCH_KEY_LED
+	if (gpio_is_valid(pdata->gpio_keyled)) {
+		ret = gpio_request(pdata->gpio_keyled, "key_led_gpio");
+		if (ret) {
+			pr_err("%s: gpio_request failed: %d\n", __func__, ret);
+			goto err_free_en;
+		}
+		pdata->gpio_keyled_requested = true;
 	}
 #endif
+	return 0;
+#ifdef SUPPORTED_TOUCH_KEY_LED
+err_free_keyled:
+	if (pdata->gpio_keyled_requested) {
+		gpio_free(pdata->gpio_keyled);
+		pdata->gpio_keyled_requested = false;
+	}
+#endif
+err_free_en:
+	if (pdata->gpio_en_requested) {
+		gpio_free(pdata->tsp_en_gpio);
+		pdata->gpio_en_requested = false;
+	}
+err_free_reset:
+	if (pdata->gpio_reset_requested) {
+		gpio_free(pdata->gpio_reset);
+		pdata->gpio_reset_requested = false;
+	}
+err_free_int:
+	if (pdata->gpio_int_requested) {
+		gpio_free(pdata->gpio_int);
+		pdata->gpio_int_requested = false;
+	}
 	return ret;
+}
 }
 #endif
 static int bt541_ts_probe_dt(struct device_node *np,
@@ -4954,9 +4968,8 @@ static int bt541_ts_probe(struct i2c_client *client,
 		dev_err(&client->dev, "Failed to create esd tmr work queue\n");
 		ret = -EPERM;
 
-		goto err_input_register_device;
+		goto err_input_registered;
 	}
-
 	esd_timer_init(info);
 	esd_timer_start(CHECK_ESD_TIMER, info);
 #if defined(TSP_VERBOSE_DEBUG)
@@ -5028,23 +5041,49 @@ err_misc_register:
 	free_irq(info->irq, info);
 err_irq_of_parse:
 err_request_irq:
+err_input_registered:
 	input_unregister_device(info->input_dev);
+	info->input_dev = NULL;
 err_input_register_device:
-	input_free_device(info->input_dev);
+	if (info->input_dev) {
+		input_free_device(info->input_dev);
+		info->input_dev = NULL;
+	}
 err_power_sequence:
+	bt541_hw_power(info, POWER_OFF);
 err_alloc:
+	if (info->vdd_en) {
+		regulator_put(info->vdd_en);
+		info->vdd_en = NULL;
+	}
+	if (info->vddo_vreg) {
+		regulator_put(info->vddo_vreg);
+		info->vddo_vreg = NULL;
+	}
 	kfree(info);
 err_mem_alloc:
-	gpio_free(pdata->tsp_en_gpio);
 err_gpio_request:
 #ifdef SUPPORTED_TOUCH_KEY_LED
-	if (pdata->gpio_keyled >= 0)
+	if (pdata->gpio_keyled_requested) {
 		gpio_free(pdata->gpio_keyled);
+		pdata->gpio_keyled_requested = false;
+	}
 #endif
+	if (pdata->gpio_en_requested) {
+		gpio_free(pdata->tsp_en_gpio);
+		pdata->gpio_en_requested = false;
+	}
+	if (pdata->gpio_reset_requested) {
+		gpio_free(pdata->gpio_reset);
+		pdata->gpio_reset_requested = false;
+	}
+	if (pdata->gpio_int_requested) {
+		gpio_free(pdata->gpio_int);
+		pdata->gpio_int_requested = false;
+	}
 err_no_platform_data:
 	if (IS_ENABLED(CONFIG_OF))
 		devm_kfree(&client->dev, (void *)pdata);
-
 	dev_info(&client->dev, "Failed to probe\n");
 	return ret;
 }
@@ -5082,20 +5121,35 @@ static int bt541_ts_remove(struct i2c_client *client)
 		free_irq(info->irq, info);
 
 	misc_deregister(&touch_misc_device);
-	if (gpio_is_valid(pdata->gpio_int) != 0)
+	bt541_hw_power(info, POWER_OFF);
+	if (pdata->gpio_int_requested) {
 		gpio_free(pdata->gpio_int);
-	if (pdata->gpio_reset >= 0)
+		pdata->gpio_int_requested = false;
+	}
+	if (pdata->gpio_reset_requested) {
 		gpio_free(pdata->gpio_reset);
+		pdata->gpio_reset_requested = false;
+	}
 #ifdef SUPPORTED_TOUCH_KEY_LED
-	if (gpio_is_valid(pdata->gpio_keyled) != 0)
+	if (pdata->gpio_keyled_requested) {
 		gpio_free(pdata->gpio_keyled);
+		pdata->gpio_keyled_requested = false;
+	}
 #endif
-	if (pdata->tsp_supply_type == TSP_LDO_SUPPLY)
-		if (gpio_is_valid(pdata->tsp_en_gpio) != 0)
-			gpio_free(pdata->tsp_en_gpio);
-
+	if (pdata->gpio_en_requested) {
+		gpio_free(pdata->tsp_en_gpio);
+		pdata->gpio_en_requested = false;
+	}
+	if (info->vdd_en) {
+		regulator_put(info->vdd_en);
+		info->vdd_en = NULL;
+	}
+	if (info->vddo_vreg) {
+		regulator_put(info->vddo_vreg);
+		info->vddo_vreg = NULL;
+	}
 	input_unregister_device(info->input_dev);
-	input_free_device(info->input_dev);
+	info->input_dev = NULL;
 	up(&info->work_lock);
 	kfree(info);
 
