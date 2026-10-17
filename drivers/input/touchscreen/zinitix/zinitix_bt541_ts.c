@@ -4624,7 +4624,6 @@ err_free_int:
 	}
 	return ret;
 }
-}
 #endif
 static int bt541_ts_probe_dt(struct device_node *np,
 			 struct device *dev,
