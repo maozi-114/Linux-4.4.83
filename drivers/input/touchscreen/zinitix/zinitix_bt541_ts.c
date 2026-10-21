@@ -4689,8 +4689,8 @@ static int bt541_ts_probe_dt(struct device_node *np,
 #endif
 	pdata->gpio_int = of_get_named_gpio(np, "zinitix,irq-gpio", 0);
 	if (pdata->gpio_int < 0) {
-		/* SL8541E stock DT uses the generic "gpios" property */
-		pdata->gpio_int = of_get_named_gpio(np, "gpios", 0);
+		/* index 1 = GPIO 144 = interrupt (verified on Linux side) */
+		pdata->gpio_int = of_get_named_gpio(np, "gpios", 1);
 	}
 	if (pdata->gpio_int < 0) {
 		pr_err("%s: of_get_named_gpio failed: tsp_gpio %d\n", __func__,
@@ -4705,7 +4705,7 @@ static int bt541_ts_probe_dt(struct device_node *np,
 	 * otherwise the controller never leaves reset and all I2C accesses
 	 * fail.  Absence of the second entry is not fatal (older DTs).
 	 */
-	pdata->gpio_reset = of_get_named_gpio(np, "gpios", 1);
+	pdata->gpio_reset = of_get_named_gpio(np, "gpios", 0);
 	if (pdata->gpio_reset < 0) {
 		pdata->gpio_reset = of_get_named_gpio(np, "zinitix,reset-gpio", 0);
 	}
