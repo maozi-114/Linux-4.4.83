@@ -2746,7 +2746,7 @@ static int bt541_ts_resume(struct device *dev)
 	dev_info(&client->dev, "resume++\n");
 #endif
 	down(&info->work_lock);
-	if (info->work_state != SUSPEND) {
+	if (info->work_state != SUSPEND && info->work_state != NOTHING) {
 		dev_err(&client->dev, "%s: Invalid work proceedure (%d)\n",
 				__func__, info->work_state);
 		up(&info->work_lock);
@@ -5008,7 +5008,7 @@ static int bt541_ts_probe(struct i2c_client *client,
 	}
 	pdata->tsp_irq = info->irq;
 	ret = request_threaded_irq(info->irq, NULL, bt541_touch_work,
-		IRQF_TRIGGER_FALLING | IRQF_ONESHOT , BT541_TS_DEVICE, info);
+		IRQF_TRIGGER_LOW | IRQF_ONESHOT , BT541_TS_DEVICE, info);
 
 	if (ret) {
 		printk(KERN_ERR "unable to register irq.(%s)\r\n",
