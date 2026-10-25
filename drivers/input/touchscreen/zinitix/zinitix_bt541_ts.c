@@ -31,6 +31,7 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <linux/uaccess.h>
@@ -4730,6 +4731,15 @@ static int bt541_ts_probe_dt(struct device_node *np,
 				__func__);
 		pdata->pname = "bt541";
 	}
+
+	/*
+	 * The MSG-3580W GM01 uses a portrait 480x960 panel, while the
+	 * BT541 firmware reports its native 960x480 axes. Keep the
+	 * controller configuration unchanged and swap only Linux input axes.
+	 */
+	if (!strcmp(pdata->pname, "MSG-3580W") &&
+	    pdata->x_resolution == 960 && pdata->y_resolution == 480)
+		pdata->orientation |= TOUCH_XY_SWAP;
 	
 	if (pdata->tsp_supply_type == TSP_LDO_SUPPLY) {
 		pdata->tsp_en_gpio = of_get_named_gpio(np, "zinitix,vdd_en-gpio", 0);
