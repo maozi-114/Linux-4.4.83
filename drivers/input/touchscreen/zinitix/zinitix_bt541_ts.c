@@ -2609,6 +2609,15 @@ static irqreturn_t bt541_touch_work(int irq, void *data)
 				continue;
 			}
 
+			/* Experimental centered 200-of-324 X crop, raw X range 0..199. */
+			if (pdata->orientation == 0 && info->cap_info.MaxX == 200) {
+				if (x <= 38)
+					x = 0;
+				else if (x >= 161)
+					x = 199;
+				else
+					x = ((x - 38) * 199 + 61) / 123;
+			}
 			info->touch_info.coord[i].x = x;
 			info->touch_info.coord[i].y = y;
 			if (zinitix_bit_test(sub_status, SUB_BIT_DOWN)){
